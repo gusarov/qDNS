@@ -56,17 +56,17 @@ namespace qDNS
 		/// <summary>
 		/// User null for negative caching
 		/// </summary>
-		public void Set(QueryKey query, Response res, IPEndPoint receivedFrom)
+		public void Set(QueryKey query, Response res, IPEndPoint receivedFrom, bool isStatic = false)
 		{
 			_cache[query] = new CacheEntry
 			{
-				CachedAtUtc = DateTime.UtcNow,
+				CachedAtUtc = isStatic ? new DateTime(4000, 1, 1) : DateTime.UtcNow,
 				Response = res,
 				ReceivedFrom = receivedFrom,
 			};
 		}
 
-		public void Set(Response res, IPEndPoint receivedFrom)
+		public void Set(Response res, IPEndPoint receivedFrom, bool isStatic = false)
 		{
 			if (res is null)
 			{
@@ -76,7 +76,7 @@ namespace qDNS
 			var query = GetCacheableQuery(res);
 			if (query.NotDefault)
 			{
-				Set(query, res, receivedFrom);
+				Set(query, res, receivedFrom, isStatic: false);
 			}
 		}
 

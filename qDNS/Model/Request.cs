@@ -295,6 +295,7 @@ namespace qDNS.Model
 				Type = response.Type,
 				Class = response.Class,
 			});
+			Header.Flags = HeaderFlags.IsResponse;
 			Answers.Add(response);
 		}
 

@@ -25,7 +25,9 @@ namespace qDNS
 					if (IPAddress.TryParse(args[i], out var ip))
 					{
 						var name = args[++i];
-						srv._cache.Set(new ResponseRecord(name, ip, int.MaxValue), default);
+						Response resp = new ResponseRecord(name, ip, 24 * 60 * 60); // limit this for client to reduce client leaks
+						// resp.Header.Flags |= HeaderFlags.AuthoritativeAnswer;
+						srv._cache.Set(resp, default);
 					}
 				}
 
@@ -191,7 +193,6 @@ namespace qDNS
 					if (cachedResult != null)
 					{
 						var response = cachedResult.Response.Clone();
-
 						if (cachedResult.IsOutdated)
 						{
 							Task.Run(delegate
