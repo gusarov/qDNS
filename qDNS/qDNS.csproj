@@ -45,8 +45,12 @@
   <ItemGroup>
     <Compile Include="Cache.cs" />
     <Compile Include="Config\ConfigReader.cs" />
+    <Compile Include="Console.cs" />
+    <Compile Include="ConsoleUtil.cs" />
     <Compile Include="DnsServer.cs" />
     <Compile Include="Model\HeaderFlags.cs" />
+    <Compile Include="Model\IDeepCloneable.cs" />
+    <Compile Include="Model\RecordType.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
     <Compile Include="Model\Request.cs" />
     <Compile Include="Model\RequestHeader.cs" />

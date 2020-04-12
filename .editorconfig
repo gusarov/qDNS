@@ -1,0 +1,14 @@
+[*.cs]
+indent_style = tab
+indent_size = 4
+trim_trailing_whitespace = true
+
+[*.{csproj,json}]
+indent_style = space
+indent_size = 2
+trim_trailing_whitespace = true
+
+[packages.config]
+indent_style = space
+indent_size = 2
+trim_trailing_whitespace = true

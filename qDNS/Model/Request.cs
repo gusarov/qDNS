@@ -5,215 +5,287 @@ using System.Text;
 
 namespace qDNS.Model
 {
-    using RequestQuestionsSection = List<RequestQuestion>;
-    using RequestAnswersSection = List<ResponseRecord>;
+	public class Request : IDeepCloneable
+	{
+		public RequestHeader Header { get; set; } = new RequestHeader();
+		public List<RequestQuestion> Questions { get; set; } = new List<RequestQuestion>();
+		public List<ResponseRecord> Answers { get; set; } = new List<ResponseRecord>();
+		public List<ResponseRecord> AuthorityRR { get; set; } = new List<ResponseRecord>();
+		public List<ResponseRecord> AdditionalRR { get; set; } = new List<ResponseRecord>();
 
-    public class Request
-    {
-        public static Request Parse(byte[] data, bool log = false)
-        {
-            if (data == null)
-            {
-                throw new ArgumentNullException(nameof(data));
-            }
+		public Request()
+		{
+			
+		}
 
-            if (log)
-            {
-                try
-                {
-                    const int skip = 12;
-                    var hex = string.Join(" ", data.Skip(skip).Select(x => x.ToString("X2")));
-                    var ascii = string.Join(" ", Encoding.GetEncoding(1251).GetString(data).Skip(skip).Select(x => " " + x));
-                    Console.WriteLine(hex);
-                    Console.WriteLine(ascii);
-                }
-                catch { }
-            }
+		public override string ToString() => $"{Header} {string.Join(", ", Questions.Select(x => x.ToString()))}";
 
-            var r = new Request();
+		public Request(string host)
+		{
+			Header.Identifiation = 1;
+			Header.Flags |= HeaderFlags.ReqursionDesired;
+			Questions.Add(new RequestQuestion
+			{
+				Name = host,
+				Type = 1,
+				Class = 1,
+			});
+		}
 
-            var b = 0;
+		public static Request Parse(byte[] data, bool log = false)
+		{
+			var template = new Request();
+			Parse(data, template);
+			return template;
+		}
 
-            r.Header.Identifiation = UInt16(data, ref b);
-            // r.Header.Flags = (HeaderFlags)(short)(data[b++]+(data[b++]<<8));
-            r.Header.Flags = (HeaderFlags)UInt16(data, ref b);
-            var questionsCount = UInt16(data, ref b);
-            var answersCount = UInt16(data, ref b);
-            var AuthorityRR = UInt16(data, ref b);
-            var AdditionalRR = UInt16(data, ref b);
+		protected static void Parse(byte[] data, Request template, bool log = false)
+		{
+			if (template == null)
+			{
+				template = new Request();
+			}
 
-            for (int i = 0; i < questionsCount; i++)
-            {
-                var host = ParseHost(data, ref b);
+			var r = template;
 
-                var q = new RequestQuestion
-                {
-                    Name = host,
-                    Type = UInt16(data, ref b),
-                    Class = UInt16(data, ref b),
-                };
+			if (data == null)
+			{
+				throw new ArgumentNullException(nameof(data));
+			}
 
-                r.Questions.Add(q);
-            }
-            for (int i = 0; i < answersCount; i++)
-            {
-                string host;
-                var c = data[b];
-                if ((c & 0xC0) == 0xC0) // host compression enabled
-                {
-                    var pointer = ((c & 0x3F ) << 8) | data[b+1];
-                    b += 2;
-                    host = ParseHost(data, ref pointer);
-                }
-                else
-                {
-                    host = ParseHost(data, ref b);
-                }
+			if (log)
+			{
+				try
+				{
+					const int skip = 12;
+					var hex = string.Join(" ", data.Skip(skip).Select(x => x.ToString("X2")));
+					var ascii = string.Join(" ", Encoding.GetEncoding(1251).GetString(data).Skip(skip).Select(x => " " + x));
+					Console.WriteLine(hex);
+					Console.WriteLine(ascii);
+				}
+				catch { }
+			}
 
-                var type = UInt16(data, ref b);
+			var b = 0;
 
-                var rr = new ResponseRecord
-                {
-                    Name = host,
-                    Type = type,
-                    Class = UInt16(data, ref b),
-                    Ttl = UInt32(data, ref b),
-                };
+			r.Header.Identifiation = UInt16(data, ref b);
+			// r.Header.Flags = (HeaderFlags)(short)(data[b++]+(data[b++]<<8));
+			r.Header.Flags = (HeaderFlags)UInt16(data, ref b);
 
-                var rlen = UInt16(data, ref b);
-                var rdata = new byte[rlen];
-                Array.Copy(data, b, rdata, 0, rlen);
-                b += rlen;
-                rr.Data = rdata;
+			var questionsCount = UInt16(data, ref b);
+			var answersCount = UInt16(data, ref b);
+			var authorityRR = UInt16(data, ref b);
+			var additionalRR = UInt16(data, ref b);
 
-                r.Answers.Add(rr);
-            }
-            return r;
-        }
+			for (int i = 0; i < questionsCount; i++)
+			{
+				var host = ParseHost(data, ref b);
 
-        static string ParseHost(byte[] data, ref int b)
-        {
-            string host = "";
-            do
-            {
-                var c = data[b++];
-                if (c == 0)
-                {
-                    break;
-                }
+				var q = new RequestQuestion
+				{
+					Name = host,
+					Type = UInt16(data, ref b),
+					Class = UInt16(data, ref b),
+				};
 
-                var part = _enc.GetString(data, b, c);
-                b += c;
-                host += "." + part;
-            } while (true);
+				r.Questions.Add(q);
+			}
 
-            return host.TrimStart('.');
-        }
+			ResponseRecord ReadResponseRecord()
+			{
+				string host;
+				var c = data[b];
+				if ((c & 0xC0) == 0xC0) // host compression enabled (11xx xxx)
+				{
+					var pointer = ((c & 0x3F) << 8) | data[b + 1];
+					b += 2;
+					host = ParseHost(data, ref pointer); // pointer will be promoted and let it be
+				}
+				else
+				{
+					host = ParseHost(data, ref b); // b will be promoted here
+				}
 
-        static void SerializeHost(byte[] data, ref int b, Dictionary<string, ushort> lookup, string host)
-        {
-            if (lookup.TryGetValue(host, out var ptr))
-            {
-                // write compression pointer
-                data[b++] = (byte) ((ptr >> 8) | 0xc0); // 11HH HHHH
-                data[b++] = unchecked((byte) ptr);      // LLLL LLLL
-            }
-            else
-            {
-                lookup[host] = (ushort)b;
-                var parts = host.Split('.');
-                foreach (var part in parts)
-                {
-                    data[b++] = checked((byte) part.Length);
-                    _enc.GetBytes(part.ToArray(), 0, part.Length, data, b);
-                    b += part.Length;
-                }
+				var type = UInt16(data, ref b);
 
-                data[b++] = 0;
-            }
-        }
+				var rr = new ResponseRecord
+				{
+					Name = host,
+					Type = type,
+					Class = UInt16(data, ref b),
+					Ttl = UInt32(data, ref b),
+				};
 
-        private static Encoding _enc = Encoding.ASCII;//Encoding.GetEncoding(1251);
+				var rLen = UInt16(data, ref b);
+				var rData = new byte[rLen];
+				Array.Copy(data, b, rData, 0, rLen);
+				b += rLen;
+				rr.Data = rData;
+				return rr;
+			}
+			for (var i = 0; i < answersCount; i++)
+			{
+				r.Answers.Add(ReadResponseRecord());
+			}
+			for (var i = 0; i < authorityRR; i++)
+			{
+				r.AuthorityRR.Add(ReadResponseRecord());
+			}
+			for (var i = 0; i < additionalRR; i++)
+			{
+				r.AdditionalRR.Add(ReadResponseRecord());
+			}
+		}
 
-        static ushort UInt16(byte[] data, ref int b)
-        {
-            return (ushort)((data[b++] << 8) | data[b++]);
-        }
-        static void UInt16(byte[] data, ref int b, ushort val)
-        {
-            data[b++] = (byte)(val >> 8);
-            data[b++] = (byte)(val);
-        }
+		static string ParseHost(byte[] data, ref int b)
+		{
+			var host = "";
+			do
+			{
+				var c = data[b++];
+				if (c == 0)
+				{
+					break;
+				}
 
-        static void UInt32(byte[] data, ref int b, uint val)
-        {
-            data[b++] = (byte)(val >> 24);
-            data[b++] = (byte)(val >> 16);
-            data[b++] = (byte)(val >> 8);
-            data[b++] = (byte)(val);
-        }
+				var part = _enc.GetString(data, b, c);
+				b += c;
+				host += (host.Length == 0 ? "" : ".") + part;
+			} while (true);
+			return host;
+		}
 
-        static uint UInt32(byte[] data, ref int b)
-        {
-            return (uint)(
-                  (data[b++] << 24)
-                | (data[b++] << 16)
-                | (data[b++] << 8)
-                | data[b++]
-                );
-        }
+		static void SerializeHost(byte[] data, ref int b, Dictionary<string, ushort> lookup, string host)
+		{
+			if (lookup.TryGetValue(host, out var ptr))
+			{
+				// write compression pointer
+				data[b++] = (byte)((ptr >> 8) | 0xc0); // 11HH HHHH
+				data[b++] = unchecked((byte)ptr);      // LLLL LLLL
+			}
+			else
+			{
+				lookup[host] = (ushort)b;
+				var parts = host.Split('.');
+				foreach (var part in parts)
+				{
+					data[b++] = checked((byte)part.Length);
+					_enc.GetBytes(part.ToArray(), 0, part.Length, data, b);
+					b += part.Length;
+				}
 
-        public byte[] Serialzie()
-        {
-            var data = new byte[256];
+				data[b++] = 0;
+			}
+		}
 
+		private static Encoding _enc = Encoding.ASCII;//Encoding.GetEncoding(1251);
 
-            var b = 0;
+		static ushort UInt16(byte[] data, ref int b)
+		{
+			return (ushort)((data[b++] << 8) | data[b++]);
+		}
+		static void UInt16(byte[] data, ref int b, ushort val)
+		{
+			data[b++] = (byte)(val >> 8);
+			data[b++] = (byte)(val);
+		}
 
-            UInt16(data, ref b, Header.Identifiation);
-            UInt16(data, ref b, (ushort)Header.Flags);
-            UInt16(data, ref b, (ushort)Questions.Count);
-            UInt16(data, ref b, (ushort)Answers.Count);
-            UInt16(data, ref b, (ushort)AuthorityRR.Count);
-            UInt16(data, ref b, (ushort)AdditionalRR.Count);
+		static void UInt32(byte[] data, ref int b, uint val)
+		{
+			data[b++] = (byte)(val >> 24);
+			data[b++] = (byte)(val >> 16);
+			data[b++] = (byte)(val >> 8);
+			data[b++] = (byte)(val);
+		}
 
-            var lookup = new Dictionary<string, ushort>(StringComparer.OrdinalIgnoreCase);
-            for (int i = 0; i < Questions.Count; i++)
-            {
-                var question = Questions[i];
-                SerializeHost(data, ref b, lookup, question.Name);
-                UInt16(data, ref b, question.Type);
-                UInt16(data, ref b, question.Class);
-            }
+		static uint UInt32(byte[] data, ref int b)
+		{
+			return (uint)(0
+				| (data[b++] << 24)
+				| (data[b++] << 16)
+				| (data[b++] << 8)
+				| (data[b++])
+			);
+		}
 
-            foreach (var rrList in new[] {Answers, AuthorityRR, AdditionalRR})
-            {
-                for (int i = 0; i < rrList.Count; i++)
-                {
-                    var answer = Answers[i];
-                    SerializeHost(data, ref b, lookup, answer.Name);
-                    UInt16(data, ref b, answer.Type);
-                    UInt16(data, ref b, answer.Class);
-                    UInt32(data, ref b, answer.Ttl);
-                    UInt16(data, ref b, checked((ushort) answer.Data.Length));
-                    Array.Copy(answer.Data, 0, data, b, answer.Data.Length);
-                    b += answer.Data.Length;
-                }
-            }
+		public byte[] Serialzie()
+		{
+			var data = new byte[256];
 
-            var res = new byte[b];
-            Array.Copy(data, res, b);
-            return res;
-        }
+			var b = 0;
 
-        public RequestHeader Header { get; set; } = new RequestHeader();
-        public RequestQuestionsSection Questions { get; set; } = new RequestQuestionsSection();
-        public RequestAnswersSection Answers { get; set; } = new RequestAnswersSection();
-        public RequestAnswersSection AuthorityRR { get; set; } = new RequestAnswersSection();
-        public RequestAnswersSection AdditionalRR { get; set; } = new RequestAnswersSection();
-    }
+			UInt16(data, ref b, Header.Identifiation);
+			UInt16(data, ref b, (ushort)Header.Flags);
+			UInt16(data, ref b, (ushort)Questions.Count);
+			UInt16(data, ref b, (ushort)Answers.Count);
+			UInt16(data, ref b, (ushort)AuthorityRR.Count);
+			UInt16(data, ref b, (ushort)AdditionalRR.Count);
 
-    class Response : Request
-    {
-    }
+			var lookup = new Dictionary<string, ushort>(StringComparer.OrdinalIgnoreCase);
+			for (int i = 0; i < Questions.Count; i++)
+			{
+				var question = Questions[i];
+				SerializeHost(data, ref b, lookup, question.Name);
+				UInt16(data, ref b, question.Type);
+				UInt16(data, ref b, question.Class);
+			}
+
+			foreach (var rrList in new[] { Answers, AuthorityRR, AdditionalRR })
+			{
+				for (int i = 0; i < rrList.Count; i++)
+				{
+					var answer = Answers[i];
+					SerializeHost(data, ref b, lookup, answer.Name);
+					UInt16(data, ref b, answer.Type);
+					UInt16(data, ref b, answer.Class);
+					UInt32(data, ref b, answer.Ttl);
+					UInt16(data, ref b, checked((ushort)answer.Data.Length));
+					Array.Copy(answer.Data, 0, data, b, answer.Data.Length);
+					b += answer.Data.Length;
+				}
+			}
+
+			var res = new byte[b];
+			Array.Copy(data, res, b);
+			return res;
+		}
+
+		public Request Clone()
+		{
+			return (Request)DeepClone();
+		}
+
+		public virtual object DeepClone()
+		{
+			var clone = (Request)MemberwiseClone();
+			clone.Header = (RequestHeader)clone.Header.DeepClone();
+			clone.Questions = new List<RequestQuestion>(clone.Questions.Select(x => (RequestQuestion)x.DeepClone()));
+			clone.Answers = new List<ResponseRecord>(clone.Answers.Select(x => (ResponseRecord)x.DeepClone()));
+			clone.AuthorityRR = new List<ResponseRecord>(clone.AuthorityRR.Select(x => (ResponseRecord)x.DeepClone()));
+			clone.AdditionalRR = new List<ResponseRecord>(clone.AdditionalRR.Select(x=>(ResponseRecord)x.DeepClone()));
+			return clone;
+		}
+	}
+
+	public class Response : Request
+	{
+		public new Response Clone()
+		{
+			return (Response)DeepClone();
+		}
+
+		public override string ToString()
+		{
+			return $"{base.ToString()} {string.Join(", ", Answers.Select(x => x.ToString()))}";
+		}
+
+		public static Response Parse(byte[] data)
+		{
+			var template = new Response();
+			Parse(data, template);
+			return template;
+		}
+
+		// public override obj
+	}
 }
