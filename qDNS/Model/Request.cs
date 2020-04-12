@@ -1,6 +1,7 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Net;
 using System.Text;
 
 namespace qDNS.Model
@@ -27,12 +28,12 @@ namespace qDNS.Model
 			Questions.Add(new RequestQuestion
 			{
 				Name = host,
-				Type = 1,
-				Class = 1,
+				Type = RecordType.A,
+				Class = RecordClass.IN,
 			});
 		}
 
-		public static Request Parse(byte[] data, bool log = false)
+		public static Request Parse(byte[] data)
 		{
 			var template = new Request();
 			Parse(data, template);
@@ -80,12 +81,14 @@ namespace qDNS.Model
 			for (int i = 0; i < questionsCount; i++)
 			{
 				var host = ParseHost(data, ref b);
+				var type = (RecordType)UInt16(data, ref b);
+				var @class = (RecordClass)UInt16(data, ref b);
 
 				var q = new RequestQuestion
 				{
 					Name = host,
-					Type = UInt16(data, ref b),
-					Class = UInt16(data, ref b),
+					Type = type,
+					Class = @class,
 				};
 
 				r.Questions.Add(q);
@@ -106,14 +109,14 @@ namespace qDNS.Model
 					host = ParseHost(data, ref b); // b will be promoted here
 				}
 
-				var type = UInt16(data, ref b);
+				var type = (RecordType)UInt16(data, ref b);
 
 				var rr = new ResponseRecord
 				{
 					Name = host,
 					Type = type,
-					Class = UInt16(data, ref b),
-					Ttl = UInt32(data, ref b),
+					Class = (RecordClass)UInt16(data, ref b),
+					Ttl = (int)UInt32(data, ref b),
 				};
 
 				var rLen = UInt16(data, ref b);
@@ -153,6 +156,16 @@ namespace qDNS.Model
 				host += (host.Length == 0 ? "" : ".") + part;
 			} while (true);
 			return host;
+		}
+
+		public static byte[] SerializeHost(string host)
+		{
+			var buf = new byte[256];
+			var r = 0;
+			SerializeHost(buf, ref r, new Dictionary<string, ushort>(), host);
+			var act = new byte[r];
+			Array.Copy(buf, 0, act, 0, r);
+			return act;
 		}
 
 		static void SerializeHost(byte[] data, ref int b, Dictionary<string, ushort> lookup, string host)
@@ -210,7 +223,7 @@ namespace qDNS.Model
 
 		public byte[] Serialzie()
 		{
-			var data = new byte[256];
+			var data = new byte[5 * 1024];
 
 			var b = 0;
 
@@ -226,19 +239,19 @@ namespace qDNS.Model
 			{
 				var question = Questions[i];
 				SerializeHost(data, ref b, lookup, question.Name);
-				UInt16(data, ref b, question.Type);
-				UInt16(data, ref b, question.Class);
+				UInt16(data, ref b, (ushort)question.Type);
+				UInt16(data, ref b, (ushort)question.Class);
 			}
 
 			foreach (var rrList in new[] { Answers, AuthorityRR, AdditionalRR })
 			{
 				for (int i = 0; i < rrList.Count; i++)
 				{
-					var answer = Answers[i];
+					var answer = rrList[i];
 					SerializeHost(data, ref b, lookup, answer.Name);
-					UInt16(data, ref b, answer.Type);
-					UInt16(data, ref b, answer.Class);
-					UInt32(data, ref b, answer.Ttl);
+					UInt16(data, ref b, (ushort)answer.Type);
+					UInt16(data, ref b, (ushort)answer.Class);
+					UInt32(data, ref b, (uint)answer.Ttl);
 					UInt16(data, ref b, checked((ushort)answer.Data.Length));
 					Array.Copy(answer.Data, 0, data, b, answer.Data.Length);
 					b += answer.Data.Length;
@@ -269,6 +282,27 @@ namespace qDNS.Model
 
 	public class Response : Request
 	{
+		public Response()
+		{
+
+		}
+
+		public Response(ResponseRecord response)
+		{
+			Questions.Add(new RequestQuestion
+			{
+				Name = response.Name,
+				Type = response.Type,
+				Class = response.Class,
+			});
+			Answers.Add(response);
+		}
+
+		public static implicit operator Response(ResponseRecord rr)
+		{
+			return new Response(rr);
+		}
+
 		public new Response Clone()
 		{
 			return (Response)DeepClone();

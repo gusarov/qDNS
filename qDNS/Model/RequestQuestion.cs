@@ -6,8 +6,8 @@ namespace qDNS.Model
 	public class RequestQuestion : IEquatable<RequestQuestion>, IDeepCloneable
 	{
 		public string Name;
-		public ushort Type;
-		public ushort Class;
+		public RecordType Type;
+		public RecordClass Class;
 
 		public override string ToString()
 		{

@@ -13,6 +13,9 @@ namespace qDNS.Model
 		/* RA */ ReqursionAvailable = 1 << 7, // xxxx xxxx 1xxx xxxx
 		/* Z  */ // xxxx xxxx x000 xxxx
 		/* RC */ // xxxx xxxx xxxx 1111
+
+		// RCODES:
+		RCode_NoSuchName = 3,
 	}
 
 	public enum ResponseCode : byte
@@ -20,7 +23,7 @@ namespace qDNS.Model
 		NoError = 0,
 		FormErr = 1,
 		ServFail = 2,
-		NXDomain = 3,
+		NoSuchName = 3,
 		NotImp = 4,
 		Refused = 5,
 		YXDomain = 6,
@@ -58,6 +61,10 @@ namespace qDNS.Model
 		public static ResponseCode GetResponseCode(this HeaderFlags flags)
 		{
 			return (ResponseCode)((uint)flags & 15);
+		}
+		public static HeaderFlags SetOperationCode(this HeaderFlags flags, ResponseCode code)
+		{
+			return (HeaderFlags)(((ushort)flags & ~15) | (ushort)code);
 		}
 		public static OperationCode GetOperationCode(this HeaderFlags flags)
 		{

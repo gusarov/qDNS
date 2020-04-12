@@ -67,8 +67,8 @@ namespace qDNS.Tests
 			Assert.AreEqual(0, req.AdditionalRR.Count);
 			Assert.AreEqual(1, req.Questions.Count);
 			Assert.AreEqual("ghe.soti.net.corp.soti.net", req.Questions[0].Name);
-			Assert.AreEqual(1, req.Questions[0].Type);
-			Assert.AreEqual(1, req.Questions[0].Class);
+			Assert.AreEqual(RecordType.A, req.Questions[0].Type);
+			Assert.AreEqual(RecordClass.IN, req.Questions[0].Class);
 		}
 
 
@@ -106,8 +106,8 @@ namespace qDNS.Tests
 			Assert.AreEqual(0, req.AdditionalRR.Count);
 			Assert.AreEqual(1, req.Questions.Count);
 			Assert.AreEqual("google.com", req.Questions[0].Name);
-			Assert.AreEqual(1, req.Questions[0].Type);
-			Assert.AreEqual(1, req.Questions[0].Class);
+			Assert.AreEqual(RecordType.A, req.Questions[0].Type);
+			Assert.AreEqual(RecordClass.IN, req.Questions[0].Class);
 		}
 
 		// 00020100000100000000000006676F6F676C6503636F6D0000010001
@@ -159,9 +159,9 @@ namespace qDNS.Tests
 
 			Assert.AreEqual(1, res.Answers.Count);
 			Assert.AreEqual("ya.ru", res.Answers[0].Name);
-			Assert.AreEqual(1, res.Answers[0].Type);
-			Assert.AreEqual(1, res.Answers[0].Class);
-			Assert.AreEqual(164U, res.Answers[0].Ttl);
+			Assert.AreEqual(RecordType.A, res.Answers[0].Type);
+			Assert.AreEqual(RecordClass.IN, res.Answers[0].Class);
+			Assert.AreEqual(164, res.Answers[0].Ttl);
 			Assert.AreEqual(4, res.Answers[0].Data.Length);
 			Console.WriteLine("IP:" + string.Join(".", res.Answers[0].Data.Select(x => x.ToString())));
 			CollectionAssert.AreEqual(new byte[] {87, 250, 250, 242}, res.Answers[0].Data);
@@ -189,8 +189,8 @@ namespace qDNS.Tests
 			req.Answers.Add(new ResponseRecord
 			{
 				Ttl = 60 * 3,
-				Type = 1,
-				Class = 1,
+				Type = RecordType.A,
+				Class = RecordClass.IN,
 				Name = req.Questions[0].Name,
 				Data = new byte[] {10, 0, 0, 22},
 			});
@@ -202,9 +202,9 @@ namespace qDNS.Tests
 
 			Assert.AreEqual(1, dser.Answers.Count);
 			Assert.AreEqual("google.com", dser.Answers[0].Name);
-			Assert.AreEqual(1, dser.Answers[0].Type);
-			Assert.AreEqual(1, dser.Answers[0].Class);
-			Assert.AreEqual(60 * 3U, dser.Answers[0].Ttl);
+			Assert.AreEqual(RecordType.A, dser.Answers[0].Type);
+			Assert.AreEqual(RecordClass.IN, dser.Answers[0].Class);
+			Assert.AreEqual(60 * 3, dser.Answers[0].Ttl);
 
 			CollectionAssert.AreEqual(new byte[] {10, 0, 0, 22}, dser.Answers[0].Data);
 		}

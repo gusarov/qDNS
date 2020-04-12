@@ -13,10 +13,10 @@ namespace qDNS
 	{
 		public bool NotDefault => Class > 0;
 		public string Query;
-		public int Type;
-		public int Class;
+		public RecordType Type;
+		public RecordClass Class;
 
-		public QueryKey(string query, int type, int @class)
+		public QueryKey(string query, RecordType type, RecordClass @class)
 		{
 			Query = query;
 			Type = type;
@@ -83,11 +83,15 @@ namespace qDNS
 		public static QueryKey GetCacheableQuery(Request req)
 		{
 			// if ((req.Header.Flags & HeaderFlags.IsResponse) != 0 && req.Questions.Count == 1)
-			if (req.Questions.Count == 1)
+			if (req.Questions.Count == 1
+				&& req.Questions[0].Class == RecordClass.IN
+				&& (req.Questions[0].Type == RecordType.A
+				|| req.Questions[0].Type == RecordType.PTR
+				|| req.Questions[0].Type == RecordType.AAAA
+				))
 			{
 				return new QueryKey(req.Questions[0].Name, req.Questions[0].Type, req.Questions[0].Class);
 			}
-
 			return default;
 		}
 

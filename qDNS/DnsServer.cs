@@ -1,4 +1,6 @@
-﻿using Newtonsoft.Json;
+﻿#define ASYNC
+
+using Newtonsoft.Json;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -7,25 +9,48 @@ using System.Net.NetworkInformation;
 using System.Net.Sockets;
 using System.Threading.Tasks;
 using qDNS.Model;
-using System.Threading;
+using System.Text.RegularExpressions;
 
 namespace qDNS
 {
 	public class DnsServer : IDisposable
 	{
-		static void Main()
+		static void Main(string[] args)
 		{
-			new DnsServer().Run();
-			Console.ReadLine();
+			using (var srv = new DnsServer())
+			{
+
+				for (var i = 0; i < args.Length; i++)
+				{
+					if (IPAddress.TryParse(args[i], out var ip))
+					{
+						var name = args[++i];
+						srv._cache.Set(new ResponseRecord(name, ip, int.MaxValue), default);
+					}
+				}
+
+				srv.Run();
+				Console.ReadLine();
+			}
 		}
 
-		public void Run(IPEndPoint endPoint = null)
+		public DnsServer()
 		{
 			var interfaces = NetworkInterface.GetAllNetworkInterfaces();
+			var addresses = new HashSet<IPAddress>();
 			foreach (var networkInterface in interfaces)
 			{
 
 				var adapterProperties = networkInterface.GetIPProperties();
+				foreach (var item in adapterProperties.UnicastAddresses.Select(x => x.Address))
+				{
+					_myAddress.Add(item);
+				}
+				foreach (var item in adapterProperties.UnicastAddresses)
+				{
+					System.Console.WriteLine(item);
+				}
+
 				var dnsServers = adapterProperties.DnsAddresses;
 				if (dnsServers.Count > 0)
 				{
@@ -33,61 +58,116 @@ namespace qDNS
 					foreach (var dns in dnsServers)
 					{
 						Console.WriteLine($"  DNS Servers: {dns}");
-						_address.Add(dns);
+						addresses.Add(dns);
 					}
 
 					Console.WriteLine();
 				}
 			}
+			addresses.Add(new IPAddress(new byte[] { 1, 1, 1, 1 })); // Cloudflare
+			addresses.Add(new IPAddress(new byte[] { 8, 8, 8, 8 })); // Google
+
+			_forwardTo.AddRange(addresses.OrderBy(x => x.AddressFamily));
+		}
+
+		public void ClearForwarding()
+		{
+			_forwardTo.Clear();
+		}
+
+		public void AddForwarding(IPAddress address)
+		{
+			_forwardTo.Add(address);
+		}
+
+		public void Run(IPEndPoint endPoint = null)
+		{
+
+			
 
 			if (endPoint != null)
 			{
 				var udp0 = new UdpClient(endPoint);
+				udp0.Client.DontFragment = true;
 				udp0.BeginReceive(UdpReceived, udp0);
 				_clients.Add(udp0);
 			}
 			else
 			{
-				var udp1 = new UdpClient(53, AddressFamily.InterNetwork);
+				var udp1 = new UdpClient(53);
+				udp1.Client.DontFragment = true;
+				// Console.WriteLine(udp1.ExclusiveAddressUse);
+				// Console.WriteLine(udp1.Client.DualMode);
+				// udp1.ExclusiveAddressUse
+				// udp1.Client.
 				udp1.BeginReceive(UdpReceived, udp1);
 				_clients.Add(udp1);
+
+				/*
 
 				var udp2 = new UdpClient(53, AddressFamily.InterNetworkV6);
 				udp2.BeginReceive(UdpReceived, udp2);
 				_clients.Add(udp2);
+
+				var udp3 = new UdpClient(5353, AddressFamily.InterNetworkV6);
+				udp3.BeginReceive(UdpReceived, udp3);
+				_clients.Add(udp3);
+				*/
 			}
 		}
 
 		private readonly List<UdpClient> _clients = new List<UdpClient>();
 
-		private readonly List<IPAddress> _address = new List<IPAddress>();
+		private readonly List<IPAddress> _forwardTo = new List<IPAddress>();
+		private readonly HashSet<IPAddress> _myAddress = new HashSet<IPAddress>
+		{
+			IPAddress.Loopback,
+			IPAddress.IPv6Loopback,
+		};
 
 		private void UdpReceived(IAsyncResult ar)
 		{
-			var udp = (UdpClient) ar.AsyncState;
-			udp.BeginReceive(UdpReceived, ar.AsyncState); // infinite async
-
 			try
 			{
-				IPEndPoint ep = null;
-				var data = udp.EndReceive(ar, ref ep);
-				Console.WriteLine($"Received Request: {data.Length} bytes from {ep}:");
+				var udp = (UdpClient)ar.AsyncState;
+#if ASYNC
+			udp.BeginReceive(UdpReceived, ar.AsyncState); // infinite async
+#endif
 
-				Console.WriteLine(string.Join("", data.Select(x => x.ToString("X2"))));
+				using (ConsoleUtil.UseColor(ConsoleColor.Gray))
+				{
+					try
+					{
+						IPEndPoint ep = null;
+						var data = udp.EndReceive(ar, ref ep);
+						Console.WriteLine($"Received Request: {data.Length} bytes from {ep}:");
+						Console.WriteLine(string.Join("", data.Select(x => x.ToString("X2"))));
 
-				var resp = Handle(data);
-				Console.WriteLine("Returning Response...");
-				udp.Send(resp, resp.Length, ep);
+						var resp = Handle(data, ep.Address);
+						Console.WriteLine("Returning Response...");
+						udp.Send(resp, resp.Length, ep);
+					}
+					catch (Exception ex)
+					{
+						Console.WriteLine(ex);
+					}
+				}
+
+#if !ASYNC
+				udp.BeginReceive(UdpReceived, ar.AsyncState); // infinite async
+#endif
 			}
-			catch (Exception ex)
-			{
-				Console.WriteLine(ex);
-			}
+			catch { }
 		}
 
 		private Cache _cache = new Cache();
 
-		byte[] Handle(byte[] data)
+		bool IsMyIp(IPAddress address)
+		{
+			return _myAddress.Contains(address);
+		}
+
+		byte[] Handle(byte[] data, IPAddress from)
 		{
 			// There is 3 ways
 			// 1 - it is served from cache
@@ -96,6 +176,11 @@ namespace qDNS
 
 			var req = Request.Parse(data);
 			Console.WriteLine(req.ToString());
+			if ((req.Header.Flags & HeaderFlags.Truncation) > 0)
+			{
+				Console.WriteLine(ConsoleColor.Red, "TRUNCATED");
+			}
+
 			try
 			{
 				// usually it have only one dns host request
@@ -107,35 +192,35 @@ namespace qDNS
 					{
 						var response = cachedResult.Response.Clone();
 
-						const int minTtl = 3;
-
 						if (cachedResult.IsOutdated)
 						{
 							Task.Run(delegate
 							{
-								using (ConsoleUtil.Color(ConsoleColor.Yellow))
+								using (ConsoleUtil.UseColor(ConsoleColor.Yellow))
 								{
 									Console.WriteLine("Requesting updated record...");
 								}
-								Forward(data);
+								Forward(data, from);
 							}); // Forwarder must update the cache, but meanwhile we will respond immediately with outdated answer
 
 							// also reset ttl
-							response.Answers.ForEach(x => x.Ttl = minTtl);
-							response.AuthorityRR.ForEach(x => x.Ttl = minTtl);
-							response.AdditionalRR.ForEach(x => x.Ttl = minTtl);
+							response.Answers.ForEach(x => x.Ttl = 0);
+							response.AuthorityRR.ForEach(x => x.Ttl = 0);
+							response.AdditionalRR.ForEach(x => x.Ttl = 0);
 						}
+
+						const int minTtl = 0; // seconds
 
 						// patch TTL with the time remaining since cached?
 						var secondsAgo = (int)(DateTime.UtcNow - cachedResult.CachedAtUtc).TotalSeconds;
-						response.Answers.ForEach(x => x.Ttl = (uint)Math.Min(minTtl, x.Ttl - secondsAgo));
-						response.AuthorityRR.ForEach(x => x.Ttl = (uint)Math.Min(minTtl, x.Ttl - secondsAgo));
-						response.AdditionalRR.ForEach(x => x.Ttl = (uint)Math.Min(minTtl, x.Ttl - secondsAgo));
+						response.Answers.ForEach(x => x.Ttl = (int)Math.Min(minTtl, x.Ttl - secondsAgo));
+						response.AuthorityRR.ForEach(x => x.Ttl = (int)Math.Min(minTtl, x.Ttl - secondsAgo));
+						response.AdditionalRR.ForEach(x => x.Ttl = (int)Math.Min(minTtl, x.Ttl - secondsAgo));
 
 						response.Questions = req.Questions;
 						response.Header.Identifiation = req.Header.Identifiation;
 
-						using (ConsoleUtil.Color(ConsoleColor.Green))
+						using (ConsoleUtil.UseColor(ConsoleColor.Green))
 						{
 							Console.WriteLine("Hit Cache!");
 							Console.WriteLine(response);
@@ -145,54 +230,162 @@ namespace qDNS
 					}
 				}
 
-				/*
-				if (req.Questions[0].Name.ToLowerInvariant() == "xxx")
-				{
-					Console.WriteLine("OVERRIDING RESPONSE");
-					req.Answers.Add(new ResponseRecord
-					{
-						Data = new byte[] {10, 0, 0, 22},
-						Class = 1,
-						Name = req.Questions[0].Name,
-						Ttl = 3 * 60,
-						Type = 1,
-					});
-					req.Header.Flags = (HeaderFlags) 0x8180; // have no idea about details, just a usual response
-					Console.WriteLine(JsonConvert.SerializeObject(req, Formatting.Indented));
-
-					return req.Serialzie();
-				}
-				*/
-
 			}
 			catch (Exception ex)
 			{
 				Console.WriteLine(ex);
 			}
-
 			Console.WriteLine();
-			// forward synchronously
 
-			using (ConsoleUtil.Color(ConsoleColor.Red))
+			if (req.Questions.Count == 1)
+			{
+				var query = req.Questions[0];
+
+				var sptrData = HandleSelfPRT(req, query, from);
+				if (sptrData != null)
+				{
+					return sptrData;
+				}
+
+				var selfName = HandleSelfName(req, query, from);
+				if (selfName != null)
+				{
+					return selfName;
+				}
+
+				var localName = HandleLocal(req, query, from);
+				if (localName != null)
+				{
+					return localName;
+				}
+
+			}
+
+			using (ConsoleUtil.UseColor(ConsoleColor.Red))
 			{
 				Console.WriteLine("Cache miss, direct request...");
 			}
 
-			return Forward(data);
+			return Forward(data, from);
 		}
 
-		public byte[] Forward(byte[] data)
+		static IPAddress MyLocalAddressFor(IPAddress from)
+		{
+			var fromAddrInt = BitConverter.ToUInt32(from.GetAddressBytes().Reverse().ToArray(), 0);
+
+			foreach (var networkInterface in NetworkInterface.GetAllNetworkInterfaces())
+			{
+				var adapterProperties = networkInterface.GetIPProperties();
+				foreach (var item in adapterProperties.UnicastAddresses.Where(x => x.Address.AddressFamily == AddressFamily.InterNetwork))
+				{
+					var myAddrInt = BitConverter.ToUInt32(item.Address.GetAddressBytes().Reverse().ToArray(), 0);
+					var maskInt = BitConverter.ToUInt32(item.IPv4Mask.GetAddressBytes().Reverse().ToArray(), 0);
+					var network = myAddrInt & maskInt;
+					var fromNetwork = fromAddrInt & maskInt;
+
+					if (fromNetwork == network)
+					{
+						return item.Address;
+					}
+				}
+			}
+
+			return null;
+		}
+
+		private byte[] HandleSelfName(Request req, RequestQuestion query, IPAddress from)
+		{
+			if ((query.Type == RecordType.A) && query.Class == RecordClass.IN)
+			{
+				if (Environment.MachineName.ToUpperInvariant() == query.Name.ToUpperInvariant())
+				{
+					// should respond with ip from specific interface
+					var local = MyLocalAddressFor(from);
+					if (local != null)
+					{
+						var resp = new Response
+						{
+							Header =
+									{
+										Identifiation = req.Header.Identifiation,
+										Flags = HeaderFlags.IsResponse,
+									},
+							Questions =
+									{
+										query,
+									},
+							Answers =
+									{
+										new ResponseRecord(query.Type, query.Name, local.GetAddressBytes(), 5 * 60), // 5 min
+									},
+						};
+						_cache.Set(resp, new IPEndPoint(local, 53));
+						return resp.Serialzie();
+					}
+				}
+			}
+			return null;
+		}
+		private byte[] HandleLocal(Request req, RequestQuestion query, IPAddress from)
+		{
+			if ((query.Type == RecordType.A || query.Type == RecordType.AAAA) && query.Class == RecordClass.IN)
+			{
+				if (!query.Name.Contains('.'))
+				{
+					var resp = new Response
+					{
+						Header =
+						{
+							Identifiation = req.Header.Identifiation,
+							Flags = HeaderFlags.IsResponse | HeaderFlags.RCode_NoSuchName,
+						},
+						Questions =
+						{
+							query,
+						},
+					};
+					return resp.Serialzie();
+				}
+			}
+			return null;
+		}
+
+		private byte[] HandleSelfPRT(Request req, RequestQuestion query, IPAddress from)
+		{
+			if (query.Type == RecordType.PTR && query.Class == RecordClass.IN) // PTR to me
+			{
+				var rx = new Regex(@"(?<adr>(\d+\.){4})in-addr.arpa");
+				var match = rx.Match(query.Name);
+				if (match.Success)
+				{
+					var adr = match.Groups["adr"].Value;
+					var adrParts = adr.Split('.').Take(4);
+					var ip = new IPAddress(adrParts.Reverse().Select(x => byte.Parse(x)).ToArray());
+					if (IsMyIp(ip))
+					{
+						Response resp = new ResponseRecord(RecordType.PTR, query.Name, Response.SerializeHost(Environment.MachineName), int.MaxValue);
+
+						Console.WriteLine(ConsoleColor.Cyan, "Just made up:" + resp);
+						_cache.Set(resp, new IPEndPoint(ip, 53));
+						return resp.Serialzie();
+					}
+				}
+			}
+			return null;
+		}
+		
+		public byte[] Forward(byte[] data, IPAddress from)
 		{
 			// todo ask all at the same time to reduce delay
 			var epi = 0;
 			retry:
 			IPAddress ep;
-			lock (_address)
+			lock (_forwardTo)
 			{
-				ep = _address[epi];
+				ep = _forwardTo[epi];
 			}
 
-			using (var udp = new UdpClient())
+			using (var udp = new UdpClient(ep.AddressFamily))
 			{
 				Console.WriteLine($">>> Forward to {ep}");
 				var ei = new IPEndPoint(ep, 53);
@@ -202,16 +395,21 @@ namespace qDNS
 				var rTask = udp.ReceiveAsync();
 				if (!rTask.Wait(1500))
 				{
-					lock (_address)
+					lock (_forwardTo)
 					{
-						var old = _address[epi];
+						var old = _forwardTo[epi];
 						epi++;
-						if (epi > _address.Count)
+						if (epi >= _forwardTo.Count)
 						{
-							throw new Exception("Not found");
+							var noResp = Response.Parse(data);
+							noResp.Header.Flags |= HeaderFlags.IsResponse | (HeaderFlags)ResponseCode.NoSuchName;
+
+							_cache.Set(noResp, new IPEndPoint(MyLocalAddressFor(from), 53));
+							return noResp.Serialzie();
+							//throw new Exception("Not found");
 						}
 
-						Console.WriteLine($"DNS Server {old} is not responding, switching to {_address[epi]}");
+						Console.WriteLine($"DNS Server {old} is not responding, switching to {_forwardTo[epi]}");
 					}
 
 					goto retry;
@@ -220,10 +418,10 @@ namespace qDNS
 				// done, make sure it is prioritized
 				if (epi != 0)
 				{
-					lock (_address)
+					lock (_forwardTo)
 					{
-						_address.RemoveAt(epi);
-						_address.Insert(0, ep);
+						_forwardTo.RemoveAt(epi);
+						_forwardTo.Insert(0, ep);
 						Console.WriteLine($"Moved on top: {ep}");
 					}
 				}
@@ -231,27 +429,34 @@ namespace qDNS
 				var resp = rTask.Result.Buffer;
 				Console.WriteLine($"<<< received from {rTask.Result.RemoteEndPoint}");
 
-				var res = Response.Parse(resp);
-
-				#region print
-
-				using (ConsoleUtil.Color(ConsoleColor.DarkMagenta))
+				try
 				{
-					try
+					var res = Response.Parse(resp);
+
+					#region print
+
+					using (ConsoleUtil.UseColor(ConsoleColor.DarkMagenta))
 					{
-						Console.WriteLine(string.Join("", resp.Select(x => x.ToString("X2"))));
-						Console.WriteLine(JsonConvert.SerializeObject(res, Formatting.Indented));
-						Console.WriteLine(res);
+						try
+						{
+							Console.WriteLine(string.Join("", resp.Select(x => x.ToString("X2"))));
+							Console.WriteLine(JsonConvert.SerializeObject(res, Formatting.Indented));
+							Console.WriteLine(res);
+						}
+						catch (Exception ex)
+						{
+							Console.WriteLine(ex.Message);
+						}
 					}
-					catch (Exception ex)
-					{
-						Console.WriteLine(ex.Message);
-					}
+
+					#endregion
+
+					_cache.Set(res, rTask.Result.RemoteEndPoint);
 				}
-
-				#endregion
-
-				_cache.Set(res, rTask.Result.RemoteEndPoint);
+				catch (Exception ex)
+				{
+					Console.WriteLine(ConsoleColor.Red, ex);
+				}
 
 				return resp;
 			}
@@ -271,22 +476,6 @@ namespace qDNS
 			}
 		}
 
-	}
-
-	public class ConsoleUtil
-	{
-		public static IDisposable Color(ConsoleColor color)
-		{
-			var orig = Console.ForegroundColor;
-			var obj = new object();
-			Monitor.Enter(obj);
-			Console.ForegroundColor = color;
-			return new Scope(delegate
-			{
-				Console.ForegroundColor = orig;
-				Monitor.Exit(obj);
-			});
-		}
 	}
 
 	public class Scope : IDisposable
