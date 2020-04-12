@@ -221,7 +221,7 @@ namespace qDNS.Model
 			);
 		}
 
-		public byte[] Serialzie()
+		public byte[] Serialize()
 		{
 			var data = new byte[5 * 1024];
 

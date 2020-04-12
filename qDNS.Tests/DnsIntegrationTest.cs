@@ -8,25 +8,50 @@ using System.Net.Sockets;
 namespace qDNS.Tests
 {
 	[TestClass]
-	public class DnsIntegrationTest
+	public abstract class BaseIntegrationTests
 	{
-		private static readonly IPEndPoint _testEndpoint = new IPEndPoint(new IPAddress(new byte[] {127, 0, 0, 2}), 53);
-
+		protected static IPEndPoint _testEndpoint; // = new IPEndPoint(new IPAddress(new byte[] { 127, 0, 0, 2 }), 53);
 		static DnsServer _srv;
+		static Random _rnd = new Random();
 
-		[ClassInitialize]
-		public static void Init(TestContext ctx)
+		static BaseIntegrationTests()
 		{
+			var buf = new byte[4];
+			_rnd.NextBytes(buf);
+			buf[0] = 127;
+			if (buf[3] == 0) buf[3]++;
+			if (buf[3] == 255) buf[3]--;
+
+			_testEndpoint = new IPEndPoint(new IPAddress(buf), 53);
+
 			_srv = new DnsServer();
 			_srv.ClearForwarding();
 			_srv.AddForwarding(new IPAddress(new byte[] { 8, 8, 8, 8 }));
 			_srv.Run(_testEndpoint);
 		}
 
+
+		[ClassInitialize]
+		public static void Init(TestContext ctx)
+		{
+		}
+
 		[ClassCleanup]
 		public static void Clean()
 		{
 			_srv.Dispose();
+		}
+
+	}
+
+	[TestClass]
+	public class DnsMainIntegration : BaseIntegrationTests
+	{
+
+		[TestMethod]
+		public void Should_10_respond_on_request_2nd()
+		{
+			Should_10_respond_on_request();
 		}
 
 		[TestMethod]
@@ -36,7 +61,7 @@ namespace qDNS.Tests
 			cli.Connect(_testEndpoint);
 			var req = new Request("dnstest.xkip.me");
 
-			var buf = req.Serialzie();
+			var buf = req.Serialize();
 			cli.Send(buf, buf.Length);
 			IPEndPoint ep = null;
 			var data = cli.Receive(ref ep);
@@ -44,7 +69,7 @@ namespace qDNS.Tests
 
 			Assert.AreEqual(_testEndpoint, ep);
 			Assert.AreEqual(1, res.Header.Identifiation);
-			Assert.IsTrue(res.Header.Flags.HasFlag(HeaderFlags.IsResponse));
+			Assert.IsTrue(res.Header.Flags.HasFlag(HeaderFlags.IsResponse), res.Header.Flags.ToString());
 			Assert.AreEqual(1, res.Questions.Count);
 			Assert.AreEqual("dnstest.xkip.me", res.Questions[0].Name);
 			Assert.AreEqual(RecordType.A, res.Questions[0].Type);
@@ -83,7 +108,7 @@ namespace qDNS.Tests
 
 			Console.WriteLine(name.Length);
 			var req = new Request(name);
-			var buf = req.Serialzie();
+			var buf = req.Serialize();
 			cli.Send(buf, buf.Length);
 			IPEndPoint ep = null;
 			var data = cli.Receive(ref ep);

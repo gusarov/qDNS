@@ -44,6 +44,7 @@
   <ItemGroup>
     <Compile Include="DnsIntegrationTest.cs" />
     <Compile Include="MessageSerializationTests.cs" />
+    <Compile Include="PerformanceTests.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
   </ItemGroup>
   <ItemGroup>

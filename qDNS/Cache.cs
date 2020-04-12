@@ -61,6 +61,7 @@ namespace qDNS
 			_cache[query] = new CacheEntry
 			{
 				CachedAtUtc = isStatic ? new DateTime(4000, 1, 1) : DateTime.UtcNow,
+				TtlOverride = isStatic ? 24 * 60 * 60 : default(int?),
 				Response = res,
 				ReceivedFrom = receivedFrom,
 			};
@@ -76,7 +77,7 @@ namespace qDNS
 			var query = GetCacheableQuery(res);
 			if (query.NotDefault)
 			{
-				Set(query, res, receivedFrom, isStatic: false);
+				Set(query, res, receivedFrom, isStatic: isStatic);
 			}
 		}
 
@@ -100,21 +101,43 @@ namespace qDNS
 	class CacheEntry
 	{
 		public Response Response { get; set; }
+
+		private byte[] _responseData;
+		public byte[] ResponseData
+		{
+			get
+			{
+				return _responseData ?? (_responseData = Response.Serialize());
+			}
+		}
 		public IPEndPoint ReceivedFrom { get; set; }
 
 		public DateTime CachedAtUtc { get; set; }
+
+		public int? TtlOverride { get; set; }
 
 		public bool IsOutdated
 		{
 			get
 			{
 				var now = DateTime.UtcNow;
+
+				if (TtlOverride.HasValue)
+				{
+					return CachedAtUtc.AddSeconds(TtlOverride.Value) < now;
+				}
+
+				if (ResponseData != null && Response == null)
+				{
+					Response = Response.Parse(ResponseData);
+				}
+
 				if (Response.Answers.Count == 0)
 				{
 					return (now - CachedAtUtc).TotalMinutes > 1; // negative cache!
 				}
 
-				return Response.Answers.Any(x => CachedAtUtc.AddMinutes(x.Ttl) < now);
+				return Response.Answers.Any(x => CachedAtUtc.AddSeconds(x.Ttl) < now);
 			}
 		}
 	}

@@ -12,24 +12,40 @@ namespace qDNS
 	{
 		private static object _sync = new object();
 
+		static bool _enable = true;
+		public static bool Enable
+		{
+			get => _enable;
+			set => _enable = value;
+		}
+
 		public static void WriteLine(object msg)
 		{
-			WriteLine(ConsoleUtil.Color, msg);
+			if (_enable)
+			{
+				WriteLine(ConsoleUtil.Color, msg);
+			}
 		}
 		public static void WriteLine(ConsoleColor color, object msg)
 		{
-			lock (_sync)
+			if (_enable)
 			{
-				var old = SConsole.ForegroundColor;
-				SConsole.ForegroundColor = color;
-				SConsole.WriteLine(msg);
-				SConsole.ForegroundColor = old;
+				lock (_sync)
+				{
+					var old = SConsole.ForegroundColor;
+					SConsole.ForegroundColor = color;
+					SConsole.WriteLine(msg);
+					SConsole.ForegroundColor = old;
+				}
 			}
 		}
 
 		public static void WriteLine()
 		{
-			SConsole.WriteLine();
+			if (_enable)
+			{
+				SConsole.WriteLine();
+			}
 		}
 
 		public static void ReadLine()

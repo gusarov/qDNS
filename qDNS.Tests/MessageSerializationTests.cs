@@ -166,7 +166,7 @@ namespace qDNS.Tests
 			Console.WriteLine("IP:" + string.Join(".", res.Answers[0].Data.Select(x => x.ToString())));
 			CollectionAssert.AreEqual(new byte[] {87, 250, 250, 242}, res.Answers[0].Data);
 
-			var ser = res.Serialzie();
+			var ser = res.Serialize();
 			Console.WriteLine(string.Join(" ", responseData.Select(x => x.ToString("X2"))));
 			Console.WriteLine(string.Join(" ", ser.Select(x => x.ToString("X2"))));
 
@@ -195,7 +195,7 @@ namespace qDNS.Tests
 				Data = new byte[] {10, 0, 0, 22},
 			});
 
-			var ser = req.Serialzie();
+			var ser = req.Serialize();
 			Console.WriteLine(string.Join(" ", ser.Select(x => x.ToString("X2"))));
 
 			var dser = Response.Parse(ser);
