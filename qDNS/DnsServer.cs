@@ -20,7 +20,6 @@ namespace qDNS
 		{
 			using (var srv = new DnsServer())
 			{
-
 				for (var i = 0; i < args.Length; i++)
 				{
 					var arg = args[i].TrimStart(new[] { '-', '/' });
@@ -54,6 +53,7 @@ namespace qDNS
 			var interfaces = NetworkInterface.GetAllNetworkInterfaces();
 			var fwdAddresses = new HashSet<IPAddress>();
 			_myAddress.Add(new IPAddress(new byte[] {127, 0, 0, 1}));
+			_myAddress.Add(IPAddress.Parse("::1"));
 			foreach (var networkInterface in interfaces)
 			{
 
@@ -287,7 +287,7 @@ namespace qDNS
 				{
 					Console.WriteLine(ex);
 				}
-				Console.WriteLine();
+				Console.WriteLine(); 
 
 
 				if (req.Questions.Count == 1)
@@ -390,6 +390,8 @@ namespace qDNS
 
 		private bool HandleSelfName(RequestContext ctx)
 		{
+			var domain = IPGlobalProperties.GetIPGlobalProperties().DomainName;
+
 			RequestQuestion query;
 			if (ctx.Request.Questions.Count == 1)
 			{
@@ -402,7 +404,11 @@ namespace qDNS
 
 			if ((query.Type == RecordType.A) && query.Class == RecordClass.IN)
 			{
-				if (Environment.MachineName.ToUpperInvariant() == query.Name.ToUpperInvariant())
+				var hostName = Environment.MachineName;
+				var fqdn = Environment.MachineName + "." + domain;
+
+				if (string.Equals(query.Name, hostName, StringComparison.OrdinalIgnoreCase)
+				    || string.Equals(query.Name, fqdn, StringComparison.OrdinalIgnoreCase))
 				{
 					// should respond with ip from specific interface
 					var local = MyLocalAddressFor(ctx.From.Address);
