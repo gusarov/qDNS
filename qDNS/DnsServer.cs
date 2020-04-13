@@ -27,18 +27,20 @@ namespace qDNS
 					switch (arg.ToUpperInvariant())
 					{
 						case "FWD":
-							srv.AddForwarding(new IPAddress(arg[++i]));
+							srv.AddForwarding(IPAddress.Parse(args[++i]));
 							break;
 						case "SIELENT":
 							Console.Enable = false;
 							break;
-					}
-					if (IPAddress.TryParse(args[i], out var ip))
-					{
-						var name = args[++i];
-						Response resp = new ResponseRecord(name, ip, 24 * 60 * 60); // limit this for client to reduce client leaks
-																					// resp.Header.Flags |= HeaderFlags.AuthoritativeAnswer;
-						srv._cache.Set(resp, default);
+						default:
+							if (IPAddress.TryParse(args[i], out var ip))
+							{
+								var name = args[++i];
+								Response resp = new ResponseRecord(name, ip, 24 * 60 * 60); // limit this for client to reduce client leaks
+								// resp.Header.Flags |= HeaderFlags.AuthoritativeAnswer;
+								srv._cache.Set(resp, default);
+							}
+							break;
 					}
 				}
 
@@ -51,6 +53,7 @@ namespace qDNS
 		{
 			var interfaces = NetworkInterface.GetAllNetworkInterfaces();
 			var fwdAddresses = new HashSet<IPAddress>();
+			_myAddress.Add(new IPAddress(new byte[] {127, 0, 0, 1}));
 			foreach (var networkInterface in interfaces)
 			{
 
