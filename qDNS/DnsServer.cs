@@ -28,7 +28,7 @@ namespace qDNS
 						case "FWD":
 							srv.AddForwarding(IPAddress.Parse(args[++i]));
 							break;
-						case "SIELENT":
+						case "SILENT":
 							Console.Enable = false;
 							break;
 						default:
