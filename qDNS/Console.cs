@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
@@ -19,6 +20,7 @@ namespace qDNS
 			set => _enable = value;
 		}
 
+		[Conditional("DEBUG")]
 		public static void WriteLine(object msg)
 		{
 			if (_enable)
@@ -26,6 +28,7 @@ namespace qDNS
 				WriteLine(ConsoleUtil.Color, msg);
 			}
 		}
+		[Conditional("DEBUG")]
 		public static void WriteLine(ConsoleColor color, object msg)
 		{
 			if (_enable)
@@ -40,6 +43,7 @@ namespace qDNS
 			}
 		}
 
+		[Conditional("DEBUG")]
 		public static void WriteLine()
 		{
 			if (_enable)

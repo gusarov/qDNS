@@ -37,7 +37,7 @@ namespace qDNS
 								var name = args[++i];
 								Response resp = new ResponseRecord(name, ip, 24 * 60 * 60); // limit this for client to reduce client leaks
 								// resp.Header.Flags |= HeaderFlags.AuthoritativeAnswer;
-								srv._cache.Set(resp, default);
+								srv._cache.Set(resp, default, isStatic: true);
 							}
 							break;
 					}
@@ -265,9 +265,9 @@ namespace qDNS
 								ctx.ResponseData = newResponse.Serialize();
 								Console.WriteLine(newResponse);
 #else
-								// var buf = cachedResult.ResponseData;
-								var buf = new byte[cachedResult.ResponseData.Length];
-								cachedResult.ResponseData.CopyTo(buf, 0);
+								var buf = cachedResult.ResponseData;
+								// var buf = new byte[cachedResult.ResponseData.Length];
+								// cachedResult.ResponseData.CopyTo(buf, 0);
 
 								buf[0] = ctx.RequestData[0];
 								buf[1] = ctx.RequestData[1];
